@@ -66,18 +66,18 @@ __device__ void checkMatsCustom(int id_in_warp, inT *shared_a, inT *shared_b, ou
     constexpr unsigned int stride_a = (std::is_same<MAJOR_A,nvcuda::wmma::row_major>::value) ? K : M;
     constexpr unsigned int stride_b = (std::is_same<MAJOR_B,nvcuda::wmma::row_major>::value) ? N : K;
     constexpr unsigned int stride_acc = (MAJOR_ACC == nvcuda::wmma::mem_row_major) ? N : M;
-    CudaTensorLib::directLinear2DManipulator<inT> data_manipulator_a(shared_a, 0, 0, stride_a);
-    CudaTensorLib::directLinear2DManipulator<inT> data_manipulator_b(shared_b, 0, 0, stride_b);
-    CudaTensorLib::directLinear2DManipulator<outT> data_manipulator_acc(shared_acc, 0, 0, stride_acc);
+    CudaTensorLib::Linear2DManipulator<inT> data_manipulator_a(shared_a, 0, 0, stride_a);
+    CudaTensorLib::Linear2DManipulator<inT> data_manipulator_b(shared_b, 0, 0, stride_b);
+    CudaTensorLib::Linear2DManipulator<outT> data_manipulator_acc(shared_acc, 0, 0, stride_acc);
     //if (id_in_warp == 0) printf("Ok %d\n", data_getter.stride);
-    CudaTensorLib::load_matrix_sync<nvcuda::wmma::matrix_a, CudaTensorLib::directLinear2DManipulator<inT>, matT, M, N, K, MAJOR_A>(data_a, data_manipulator_a);
-    CudaTensorLib::load_matrix_sync<nvcuda::wmma::matrix_b, CudaTensorLib::directLinear2DManipulator<inT>, matT, M, N, K, MAJOR_B>(data_b, data_manipulator_b);
+    CudaTensorLib::load_matrix_sync<nvcuda::wmma::matrix_a, CudaTensorLib::Linear2DManipulator<inT>, matT, M, N, K, MAJOR_A>(data_a, data_manipulator_a);
+    CudaTensorLib::load_matrix_sync<nvcuda::wmma::matrix_b, CudaTensorLib::Linear2DManipulator<inT>, matT, M, N, K, MAJOR_B>(data_b, data_manipulator_b);
     //CudaTensorLib::load_matrix_sync<nvcuda::wmma::matrix_a, inT, matT, M, N, K, MAJOR_A>(data_a, shared_a, stride_a);
     //CudaTensorLib::load_matrix_sync<nvcuda::wmma::matrix_b, inT, matT, M, N, K, MAJOR_B>(data_b, shared_b, stride_b);
     CudaTensorLib::fill_fragment<matAccT, CudaTensorLib::fragment<nvcuda::wmma::accumulator, M, N, K, matAccT>>(data_acc, (matAccT)0);
     CudaTensorLib::mma_sync<matAccT, matT, M, N, K>(data_acc.x, data_a.x, data_b.x, data_acc.x);
     //CudaTensorLib::store_matrix_sync<nvcuda::wmma::accumulator, matAccT, outT, M, N, K, MAJOR_ACC>(shared_acc, data_acc, stride_acc);
-    CudaTensorLib::store_matrix_sync<nvcuda::wmma::accumulator, matAccT, CudaTensorLib::directLinear2DManipulator<outT>, M, N, K, MAJOR_ACC>(data_manipulator_acc, data_acc);
+    CudaTensorLib::store_matrix_sync<nvcuda::wmma::accumulator, matAccT, CudaTensorLib::Linear2DManipulator<outT>, M, N, K, MAJOR_ACC>(data_manipulator_acc, data_acc);
     if(DEBUG_REGISTERS)
     {
         if (id_in_warp == 0) printf("Mat a\n");
