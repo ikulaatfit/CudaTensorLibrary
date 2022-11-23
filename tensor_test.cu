@@ -1,10 +1,9 @@
-
+#include "tensor.cu"
 #define DEF_MULT_CONST 1
 
 template <typename T, int num_elements>
 __device__ void printMat(int id_in_warp, T *mat)
 {
-    //mat.x[0] = (half)(0.0f);
     for(int thread_id = 0; thread_id < WARP_SIZE; thread_id++)
     {
         if(id_in_warp == thread_id)
@@ -67,13 +66,18 @@ __device__ void checkMatsCustom(int id_in_warp, inT *shared_a, inT *shared_b, ou
     constexpr unsigned int stride_a = (std::is_same<MAJOR_A,nvcuda::wmma::row_major>::value) ? K : M;
     constexpr unsigned int stride_b = (std::is_same<MAJOR_B,nvcuda::wmma::row_major>::value) ? N : K;
     constexpr unsigned int stride_acc = (MAJOR_ACC == nvcuda::wmma::mem_row_major) ? N : M;
-
-    CudaTensorLib::load_matrix_sync<nvcuda::wmma::matrix_a, inT, matT, M, N, K, MAJOR_A>(data_a, shared_a, stride_a);
-    CudaTensorLib::load_matrix_sync<nvcuda::wmma::matrix_b, inT, matT, M, N, K, MAJOR_B>(data_b, shared_b, stride_b);
-    //CudaTensorLib::fill_fragment<matAccT, data_acc.num_elements>(data_acc.x, (matAccT)0);
+    CudaTensorLib::directLinear2DManipulator<inT> data_manipulator_a(shared_a, 0, 0, stride_a);
+    CudaTensorLib::directLinear2DManipulator<inT> data_manipulator_b(shared_b, 0, 0, stride_b);
+    CudaTensorLib::directLinear2DManipulator<outT> data_manipulator_acc(shared_acc, 0, 0, stride_acc);
+    //if (id_in_warp == 0) printf("Ok %d\n", data_getter.stride);
+    CudaTensorLib::load_matrix_sync<nvcuda::wmma::matrix_a, CudaTensorLib::directLinear2DManipulator<inT>, matT, M, N, K, MAJOR_A>(data_a, data_manipulator_a);
+    CudaTensorLib::load_matrix_sync<nvcuda::wmma::matrix_b, CudaTensorLib::directLinear2DManipulator<inT>, matT, M, N, K, MAJOR_B>(data_b, data_manipulator_b);
+    //CudaTensorLib::load_matrix_sync<nvcuda::wmma::matrix_a, inT, matT, M, N, K, MAJOR_A>(data_a, shared_a, stride_a);
+    //CudaTensorLib::load_matrix_sync<nvcuda::wmma::matrix_b, inT, matT, M, N, K, MAJOR_B>(data_b, shared_b, stride_b);
     CudaTensorLib::fill_fragment<matAccT, CudaTensorLib::fragment<nvcuda::wmma::accumulator, M, N, K, matAccT>>(data_acc, (matAccT)0);
     CudaTensorLib::mma_sync<matAccT, matT, M, N, K>(data_acc.x, data_a.x, data_b.x, data_acc.x);
-    CudaTensorLib::store_matrix_sync<nvcuda::wmma::accumulator, matAccT, outT, M, N, K, MAJOR_ACC>(shared_acc, data_acc, stride_acc);
+    //CudaTensorLib::store_matrix_sync<nvcuda::wmma::accumulator, matAccT, outT, M, N, K, MAJOR_ACC>(shared_acc, data_acc, stride_acc);
+    CudaTensorLib::store_matrix_sync<nvcuda::wmma::accumulator, matAccT, CudaTensorLib::directLinear2DManipulator<outT>, M, N, K, MAJOR_ACC>(data_manipulator_acc, data_acc);
     if(DEBUG_REGISTERS)
     {
         if (id_in_warp == 0) printf("Mat a\n");
@@ -126,8 +130,8 @@ __device__ void fill_mem_by_range(T *data, int id_in_warp)
 
 __device__ void test_mat_shared(int2 coords, void *localMemory)
 {
-    constexpr int M = 32;
-    constexpr int N = 8;
+    constexpr int M = 8;
+    constexpr int N = 32;
     constexpr int K = 16;
     typedef unsigned char matT;
     typedef int matAccT;
@@ -154,14 +158,18 @@ __device__ void test_mat_shared(int2 coords, void *localMemory)
     fill_mem_by_range<inT2, N*K>(mat_custom2_b, coords.x);
 
     if((coords.x >= WARP_SIZE) || (coords.y > 0)) return;
-    checkMatsNative<matAccT, matT, M, N, K, nvcuda::wmma::row_major, nvcuda::wmma::col_major, nvcuda::wmma::mem_row_major, false>(coords.x, mat_native_a, mat_native_b, mat_native_acc);
-    checkMatsCustom<outT1, inT1, matAccT, matT, M, N, K, nvcuda::wmma::row_major, nvcuda::wmma::col_major, nvcuda::wmma::mem_row_major, true>(coords.x, mat_custom1_a, mat_custom1_b, mat_custom1_acc);
-    checkMatsCustom<outT2, inT2, matAccT, matT, M, N, K, nvcuda::wmma::row_major, nvcuda::wmma::col_major, nvcuda::wmma::mem_row_major, false>(coords.x, mat_custom2_a, mat_custom2_b, mat_custom2_acc);
+    checkMatsNative<matAccT, matT, M, N, K, nvcuda::wmma::col_major, nvcuda::wmma::row_major, nvcuda::wmma::mem_row_major, false>(coords.x, mat_native_a, mat_native_b, mat_native_acc);
+    checkMatsCustom<outT1, inT1, matAccT, matT, M, N, K, nvcuda::wmma::col_major, nvcuda::wmma::row_major, nvcuda::wmma::mem_row_major, false>(coords.x, mat_custom1_a, mat_custom1_b, mat_custom1_acc);
+    checkMatsCustom<outT2, inT2, matAccT, matT, M, N, K, nvcuda::wmma::col_major, nvcuda::wmma::row_major, nvcuda::wmma::mem_row_major, false>(coords.x, mat_custom2_a, mat_custom2_b, mat_custom2_acc);
     __syncthreads();
     if((coords.x == 0) && (coords.y == 0))
     {
-        printf("\n\nResult %d\n\n", compare_mat<matAccT, outT1, N, M>(mat_native_acc,mat_custom1_acc) ? 1 : 0);
-        printf("\n\nResult %d\n\n", compare_mat<outT1, outT2, N, M>(mat_custom1_acc,mat_custom2_acc) ? 1 : 0);
+        bool native_custom_result = compare_mat<matAccT, outT1, N, M>(mat_native_acc,mat_custom1_acc);
+        bool custom_result = compare_mat<outT1, outT2, N, M>(mat_custom1_acc,mat_custom2_acc);
+        if(!native_custom_result)
+            printf("\n\nNative and custom implementation has differend reuslts.\n\n");
+        if(!custom_result)
+            printf("\n\nCustom implementations has differend reuslts.\n\n");
     }
 }
 
@@ -170,8 +178,8 @@ __device__ void test_mat_global_warp(outT *c, inT *a, inT *b, int m, int n, int 
 {
     int warp_in_group = threadIdx.x/32;
     int2 warp_id;
-    warp_id.x = blockIdx.x + warp_in_group%WARPS_PER_ROW;
-    warp_id.y = blockIdx.y + warp_in_group/WARPS_PER_ROW;
+    warp_id.x = blockIdx.x * WARPS_PER_ROW + (warp_in_group%WARPS_PER_ROW);
+    warp_id.y = blockIdx.y * WARPS_PER_COL + (warp_in_group/WARPS_PER_ROW);
     CudaTensorLib::fragment<nvcuda::wmma::matrix_a, M, N, K, matT> data_a;
     CudaTensorLib::fragment<nvcuda::wmma::matrix_b, M, N, K, matT> data_b;
     CudaTensorLib::fragment<nvcuda::wmma::accumulator, M, N, K, matAccT> data_acc;
