@@ -2,6 +2,10 @@
 #define TENSOR_CU_H
 #include <mma.h>
 
+#ifndef WARP_SIZE
+#define WARP_SIZE 32
+#endif
+
 namespace CudaTensorLib
 {
     template <typename T> class componentTypes;
@@ -144,7 +148,7 @@ class BaseManipulator
         template <typename regT, bool horizontalDirection, int regStride>
         __device__ inline void loadNxData2D(int x, int y, regT *reg)
         {
-            typename t::t tmp_data = (horizontalDirection) ? ((DerivedClass *)this)->loadData2D<t::t>(x, y) : ((typename DerivedClass *)this)->loadData2D<t::t>(y, x);
+            typename t::t tmp_data = (horizontalDirection) ? ((DerivedClass *)this)->template loadData2D<typename t::t>(x, y) : ((DerivedClass *)this)->template loadData2D<typename t::t>(y, x);
             #pragma unroll
             for(unsigned int element_id = 0; element_id < t::num_elements; element_id++)
             {
@@ -162,28 +166,28 @@ class BaseManipulator
                 ((typename t::t1 *)&tmp_data)[element_id] = (typename t::t1)(((typename componentTypes<regT>::t1 *)reg)[regStride * element_id]);
             }
     
-            (horizontalDirection) ? ((DerivedClass *)this)->storeData2D<t::t>(tmp_data, x, y) : ((DerivedClass *)this)->storeData2D<t::t>(tmp_data, y, x);
+            (horizontalDirection) ? ((DerivedClass *)this)->template storeData2D<typename t::t>(tmp_data, x, y) : ((DerivedClass *)this)->template storeData2D<typename t::t>(tmp_data, y, x);
         }
     
         template <typename regT, bool horizontalDirection>
         __device__ inline void loadNx4BData2D(int x, int y, regT *reg)
         {
-            constexpr unsigned int vals_per_reg = 4/sizeof(componentTypes<regT>::t1);
+            constexpr unsigned int vals_per_reg = 4/sizeof(typename componentTypes<regT>::t1);
             #pragma unroll
             for(unsigned int stride_x = 0; stride_x < vals_per_reg; stride_x++)
             {
-                this->loadNxData2D<regT, horizontalDirection, vals_per_reg>(x + stride_x, y, reg + stride_x);
+                this->template loadNxData2D<regT, horizontalDirection, vals_per_reg>(x + stride_x, y, reg + stride_x);
             }
         }
     
         template <typename regT, bool horizontalDirection>
         __device__ inline void storeNx4BData2D(int x, int y, regT *reg)
         {
-            constexpr unsigned int vals_per_reg = 4/sizeof(componentTypes<regT>::t1);
+            constexpr unsigned int vals_per_reg = 4/sizeof(typename componentTypes<regT>::t1);
             #pragma unroll
             for(unsigned int stride_x = 0; stride_x < vals_per_reg; stride_x++)
             {
-                this->storeNxData2D<regT, horizontalDirection, vals_per_reg>(x + stride_x, y, reg + stride_x);
+                this->template storeNxData2D<regT, horizontalDirection, vals_per_reg>(x + stride_x, y, reg + stride_x);
             }
         }
     
@@ -194,7 +198,7 @@ class BaseManipulator
             #pragma unroll
             for(unsigned int stride_x = 0; stride_x < vals_per_reg; stride_x++)
             {
-                this->loadNxData2D<regT, horizontalDirection, vals_per_reg>(x + stride_x, y, reg + stride_x);
+                this->template loadNxData2D<regT, horizontalDirection, vals_per_reg>(x + stride_x, y, reg + stride_x);
             }
         }
     
@@ -205,7 +209,7 @@ class BaseManipulator
             #pragma unroll
             for(unsigned int stride_x = 0; stride_x < vals_per_reg; stride_x++)
             {
-                this->storeNxData2D<regT, horizontalDirection, vals_per_reg>(x + stride_x, y, reg + stride_x);
+                this->template storeNxData2D<regT, horizontalDirection, vals_per_reg>(x + stride_x, y, reg + stride_x);
             }
         }
 };
@@ -214,7 +218,7 @@ template <typename T, class ParentDerivedClassT = void>
 class Linear2DManipulator : public BaseManipulator<T, typename std::conditional<std::is_same<ParentDerivedClassT, void>::value, Linear2DManipulator<T>, ParentDerivedClassT>::type>
 {
 public:
-    using Linear2DDerivedClassT = std::conditional<std::is_same<ParentDerivedClassT, void>::value, Linear2DManipulator<T>, ParentDerivedClassT>::type;
+    using Linear2DDerivedClassT = typename std::conditional<std::is_same<ParentDerivedClassT, void>::value, Linear2DManipulator<T>, ParentDerivedClassT>::type;
     __device__ inline Linear2DManipulator(T *ptr, int x, int y, int stride): BaseManipulator<T,Linear2DDerivedClassT>(), ptr(ptr + x + y * stride), stride(stride){}
     int stride;
     T *ptr;
@@ -228,7 +232,7 @@ public:
     template <typename inT>
     __device__ inline void storeData2D(inT data, int x, int y = 0)
     {
-        (*((Linear2DDerivedClassT *)this)->getPtr2D(x, y)) = (typename t::t)data;
+        (*((Linear2DDerivedClassT *)this)->getPtr2D(x, y)) = (typename BaseManipulator<T, Linear2DDerivedClassT>::t::t)data;
     }
 
     __device__ inline T *getPtr2D(int x, int y = 0)
@@ -247,14 +251,14 @@ public:
         ((unsigned int *)(((Linear2DDerivedClassT *)this)->getPtr2D(x,y)))[0] = data;
     }
 
-    __device__ inline typename t::t2 load2Data2D(int x, int y = 0)
+    __device__ inline typename BaseManipulator<T, Linear2DDerivedClassT>::t::t2 load2Data2D(int x, int y = 0)
     {
-        return ((typename t::t2 *)(((Linear2DDerivedClassT *)this)->getPtr2D(x,y)))[0];
+        return ((typename BaseManipulator<T, Linear2DDerivedClassT>::t::t2 *)(((Linear2DDerivedClassT *)this)->getPtr2D(x,y)))[0];
     }
 
-    __device__ inline void store2Data2D(t::t2 data, int x, int y = 0)
+    __device__ inline void store2Data2D(typename BaseManipulator<T, Linear2DDerivedClassT>::t::t2 data, int x, int y = 0)
     {
-        ((typename t::t2 *)(((Linear2DDerivedClassT *)this)->getPtr2D(x,y)))[0] = data;
+        ((typename BaseManipulator<T, Linear2DDerivedClassT>::t::t2 *)(((Linear2DDerivedClassT *)this)->getPtr2D(x,y)))[0] = data;
     }
 };
 
@@ -264,7 +268,7 @@ template <typename T, DimensionMapping3To2 dim_mapping, class ParentDerivedClass
 class Linear3DManipulator : public Linear2DManipulator<T, typename std::conditional<std::is_same<ParentDerivedClassT, void>::value, Linear3DManipulator<T, dim_mapping>, ParentDerivedClassT>::type>
 {
 public:
-    using Linear3DDerivedClassT = std::conditional<std::is_same<ParentDerivedClassT, void>::value, Linear3DManipulator<T, dim_mapping>, ParentDerivedClassT>::type;
+    using Linear3DDerivedClassT = typename std::conditional<std::is_same<ParentDerivedClassT, void>::value, Linear3DManipulator<T, dim_mapping>, ParentDerivedClassT>::type;
     __device__ inline Linear3DManipulator(T *ptr, int x, int y, int z, int stride, int pitch): Linear2DManipulator<T, Linear3DDerivedClassT>(ptr + z * pitch, x, y, stride), pitch(pitch){}
     int pitch;
 
@@ -275,44 +279,44 @@ public:
     }
 
     template <typename inT>
-    __device__ inline void storeData3D(inT data, int x, int y = 0)
+    __device__ inline void storeData3D(inT data, int x = 0, int y = 0, int z = 0)
     {
-        (*this->getPtr(x, y, z)) = (typename t::t)data;
+        (*this->getPtr(x, y, z)) = (typename BaseManipulator<T, Linear3DDerivedClassT>::t::t)data;
     }
 
-    __device__ inline unsigned int load4BData3D(int x, int y = 0, int z = 0)
+    __device__ inline unsigned int load4BData3D(int x = 0, int y = 0, int z = 0)
     {
         return ((unsigned int *)(this->getPtr3D(x,y,z)))[0];
     }
 
-    __device__ inline void store4BData3D(unsigned int data, int x, int y = 0, int z = 0)
+    __device__ inline void store4BData3D(unsigned int data, int x = 0, int y = 0, int z = 0)
     {
         ((unsigned int *)(this->getPtr3D(x,y,z)))[0] = data;
     }
 
-    __device__ inline typename t::t2 load2Data3D(int x, int y = 0)
+    __device__ inline typename BaseManipulator<T, Linear3DDerivedClassT>::t::t2 load2Data3D(int x = 0, int y = 0, int z = 0)
     {
-        return ((typename t::t2 *)(this->getPtr3D(x,y,z)))[0];
+        return ((typename BaseManipulator<T, Linear3DDerivedClassT>::t::t2 *)(this->getPtr3D(x,y,z)))[0];
     }
 
-    __device__ inline void store2Data3D(typename t::t2 data, int x, int y = 0, int z = 0)
+    __device__ inline void store2Data3D(typename BaseManipulator<T, Linear3DDerivedClassT>::t::t2 data, int x = 0, int y = 0, int z = 0)
     {
-        ((typename t::t2 *)(this->getPtr3D(x,y,z)))[0] = data;
+        ((typename BaseManipulator<T, Linear3DDerivedClassT>::t::t2 *)(this->getPtr3D(x,y,z)))[0] = data;
     }
 
     __device__ inline int getXFrom2D(int id0, int id1)
     {
-        return ((dim_mapping == XY) || (dim_mapping == XZ)) ? id0 : 0;
+        return ((dim_mapping == DimensionMapping3To2::XY) || (dim_mapping == DimensionMapping3To2::XZ)) ? id0 : 0;
     }
 
     __device__ inline int getYFrom2D(int id0, int id1)
     {
-        return (dim_mapping == XY) ? id1 : ((dim_mapping == YZ) ? id0 : 0);
+        return (dim_mapping == DimensionMapping3To2::XY) ? id1 : ((dim_mapping == DimensionMapping3To2::YZ) ? id0 : 0);
     }
 
     __device__ inline int getZFrom2D(int id0, int id1)
     {
-        return ((dim_mapping == XZ) || (dim_mapping == YZ)) ? id1 : 0;
+        return ((dim_mapping == DimensionMapping3To2::XZ) || (dim_mapping == DimensionMapping3To2::YZ)) ? id1 : 0;
     }
 
     __device__ inline T *getPtr2D(int id0 = 0, int id1 = 0)
@@ -326,7 +330,7 @@ template <typename T, typename ParentDerivedClassT = void>
 class Block2DManipulator : public BaseManipulator<T, typename std::conditional<std::is_same<ParentDerivedClassT, void>::value, Block2DManipulator<T>, ParentDerivedClassT>::type>
 {
 public:
-    using Block2DDerivedClassT = std::conditional<std::is_same<ParentDerivedClassT, void>::value, Block2DManipulator<T>, ParentDerivedClassT>::type;
+    using Block2DDerivedClassT = typename std::conditional<std::is_same<ParentDerivedClassT, void>::value, Block2DManipulator<T>, ParentDerivedClassT>::type;
     __device__ inline Block2DManipulator(int x, int y) : BaseManipulator<T, Block2DDerivedClassT>(), x(x), y(y){}
     int x;
     int y;
@@ -336,35 +340,35 @@ template <typename T, DimensionMapping3To2 dim_mapping, typename ParentDerivedCl
 class Block3DManipulator : public Block2DManipulator<T, typename std::conditional<std::is_same<ParentDerivedClassT, void>::value, Block3DManipulator<T, dim_mapping>, ParentDerivedClassT>::type>
 {
 public:
-    using Block3DDerivedClassT = std::conditional<std::is_same<ParentDerivedClassT, void>::value, Block3DManipulator<T, dim_mapping>, ParentDerivedClassT>::type;
+    using Block3DDerivedClassT = typename std::conditional<std::is_same<ParentDerivedClassT, void>::value, Block3DManipulator<T, dim_mapping>, ParentDerivedClassT>::type;
     __device__ inline Block3DManipulator(int x, int y, int z) : Block2DManipulator<T, Block3DDerivedClassT>(x, y), z(z){}
     int z;
 
     __device__ inline int getXFrom2D(int id0, int id1)
     {
-        return ((dim_mapping == XY) || (dim_mapping == XZ)) ? id0 : 0;
+        return ((dim_mapping == DimensionMapping3To2::XY) || (dim_mapping == DimensionMapping3To2::XZ)) ? id0 : 0;
     }
 
     __device__ inline int getYFrom2D(int id0, int id1)
     {
-        return (dim_mapping == XY) ? id1 : ((dim_mapping == YZ) ? id0 : 0);
+        return (dim_mapping == DimensionMapping3To2::XY) ? id1 : ((dim_mapping == DimensionMapping3To2::YZ) ? id0 : 0);
     }
 
     __device__ inline int getZFrom2D(int id0, int id1)
     {
-        return ((dim_mapping == XZ) || (dim_mapping == YZ)) ? id1 : 0;
+        return ((dim_mapping == DimensionMapping3To2::XZ) || (dim_mapping == DimensionMapping3To2::YZ)) ? id1 : 0;
     }
 
     template <typename outT>
     __device__ inline outT loadData2D(int id0 = 0, int id1 = 0)
     {
-        return ((Block3DDerivedClassT *)this)->loadData3D<outT>(this->getXFrom2D(id0, id1), this->getYFrom2D(id0, id1), this->getZFrom2D(id0, id1));
+        return ((Block3DDerivedClassT *)this)->template loadData3D<outT>(this->getXFrom2D(id0, id1), this->getYFrom2D(id0, id1), this->getZFrom2D(id0, id1));
     }
 
     template <typename inT>
     __device__ inline void storeData2D(inT data, int id0 = 0, int id1 = 0)
     {
-        return ((Block3DDerivedClassT *)this)->storeData2D<inT>(data, this->getXFrom2D(id0, id1), this->getYFrom2D(id0, id1), this->getZFrom2D(id0, id1));
+        return ((Block3DDerivedClassT *)this)->template storeData2D<inT>(data, this->getXFrom2D(id0, id1), this->getYFrom2D(id0, id1), this->getZFrom2D(id0, id1));
     }
 
     __device__ inline unsigned int load4BData2D(int id0 = 0, int id1 = 0)
@@ -377,12 +381,12 @@ public:
         ((Block3DDerivedClassT *)this)->store4BData3D(data, this->getXFrom2D(id0, id1), this->getYFrom2D(id0, id1), this->getZFrom2D(id0, id1));
     }
 
-    __device__ inline typename t::t2 load2Data2D(int id0 = 0, int id1 = 0)
+    __device__ inline typename BaseManipulator<T, Block3DDerivedClassT>::t::t2 load2Data2D(int id0 = 0, int id1 = 0)
     {
         return ((Block3DDerivedClassT *)this)->load2Data3D(this->getXFrom2D(id0, id1), this->getYFrom2D(id0, id1), this->getZFrom2D(id0, id1));
     }
 
-    __device__ inline void store2Data2D(typename t::t2 data, int id0 = 0, int id1 = 0)
+    __device__ inline void store2Data2D(typename BaseManipulator<T, Block3DDerivedClassT>::t::t2 data, int id0 = 0, int id1 = 0)
     {
         ((Block3DDerivedClassT *)this)->store2Data3D(data, this->getXFrom2D(id0, id1), this->getYFrom2D(id0, id1), this->getZFrom2D(id0, id1));
     }
@@ -390,54 +394,54 @@ public:
 
 
 template <typename T, DimensionMapping3To2 dim_mapping, typename ParentDerivedClassT = void>
-class Surface3DWithOffsetsManipulator : public Block3DManipulator<T, std::conditional<std::is_same<ParentDerivedClassT, void>::value, Surface3DWithOffsetsManipulator<T, dim_mapping>, ParentDerivedClassT>::type>
+class Surface3DWithOffsetsManipulator : public Block3DManipulator<T, dim_mapping, typename std::conditional<std::is_same<ParentDerivedClassT, void>::value, Surface3DWithOffsetsManipulator<T, dim_mapping>, ParentDerivedClassT>::type>
 {
 public:
-    using Surface3DWithOffsetsDerivedClassT = std::conditional<std::is_same<ParentDerivedClassT, void>::value, Surface3DWithOffsetsManipulator<T, dim_mapping>, ParentDerivedClassT>::type;
+    using Surface3DWithOffsetsDerivedClassT = typename std::conditional<std::is_same<ParentDerivedClassT, void>::value, Surface3DWithOffsetsManipulator<T, dim_mapping>, ParentDerivedClassT>::type;
 
-    __device__ Surface3DWithOffsetsManipulator(cudaSurfaceObject_t *buffer, int2 *offsets, int x, int y, int z): Block3DManipulator<T, Surface3DWithOffsetsDerivedClassT>(x, y, z), buffer(buffer), offsets(offsets){}
+    __device__ Surface3DWithOffsetsManipulator(cudaSurfaceObject_t *buffer, int2 *offsets, int x, int y, int z): Block3DManipulator<T, dim_mapping, Surface3DWithOffsetsDerivedClassT>(x, y, z), buffer(buffer), offsets(offsets){}
 
     __device__ inline unsigned int load4BData3D(int x, int y = 0, int z = 0)
     {
-        constexpr unsigned int vals_per_reg = 4/sizeof(t::t1);
+        constexpr unsigned int vals_per_reg = 4/sizeof(typename BaseManipulator<T, Surface3DWithOffsetsDerivedClassT>::t::t1);
         unsigned int data;
         #pragma unroll
         for(unsigned int stride_x = 0; stride_x < vals_per_reg; stride_x++)
         {
-            ((typename t::t1 *)&data)[stride_x] = ((Surface3DWithOffsetsDerivedClassT *)this)->loadData3D<t::t1>(x + stride_x, y, z);
+            ((typename BaseManipulator<T, Surface3DWithOffsetsDerivedClassT>::t::t1 *)&data)[stride_x] = ((Surface3DWithOffsetsDerivedClassT *)this)->template loadData3D<typename BaseManipulator<T, Surface3DWithOffsetsDerivedClassT>::t::t1>(x + stride_x, y, z);
         }
         return data;
     }
 
     __device__ inline void store4BData3D(unsigned int data, int x, int y = 0, int z = 0)
     {
-        constexpr unsigned int vals_per_reg = 4/sizeof(t::t1);
+        constexpr unsigned int vals_per_reg = 4/sizeof(typename BaseManipulator<T, Surface3DWithOffsetsDerivedClassT>::t::t1);
         #pragma unroll
         for(unsigned int stride_x = 0; stride_x < vals_per_reg; stride_x++)
         {
-            ((Surface3DWithOffsetsDerivedClassT *)this)->storeData3D<t::t1>(((typename t::t1 *)&data)[stride_x], x + stride_x, y, z);
+            ((Surface3DWithOffsetsDerivedClassT *)this)->template storeData3D<typename BaseManipulator<T, Surface3DWithOffsetsDerivedClassT>::t::t1>(((typename BaseManipulator<T, Surface3DWithOffsetsDerivedClassT>::t::t1 *)&data)[stride_x], x + stride_x, y, z);
         }
     }
 
-    __device__ inline typename t::t2 load2Data3D(int x, int y = 0, int z = 0)
+    __device__ inline typename BaseManipulator<T, Surface3DWithOffsetsDerivedClassT>::t::t2 load2Data3D(int x, int y = 0, int z = 0)
     {
         constexpr unsigned int vals_per_reg = 2;
-        typename t::t2 data;
+        typename BaseManipulator<T, Surface3DWithOffsetsDerivedClassT>::t::t2 data;
         #pragma unroll
         for(unsigned int stride_x = 0; stride_x < vals_per_reg; stride_x++)
         {
-            ((typename t::t1 *)&data)[stride_x] = ((Surface3DWithOffsetsDerivedClassT *)this)->loadData3D<typename t::t1>(x + stride_x, y, z);
+            ((typename BaseManipulator<T, Surface3DWithOffsetsDerivedClassT>::t::t1 *)&data)[stride_x] = ((Surface3DWithOffsetsDerivedClassT *)this)->template loadData3D<typename BaseManipulator<T, Surface3DWithOffsetsDerivedClassT>::t::t1>(x + stride_x, y, z);
         }
         return data;
     }
 
-    __device__ inline void store2Data3D(t::t2 data, int x, int y = 0, int z = 0)
+    __device__ inline void store2Data3D(typename BaseManipulator<T, Surface3DWithOffsetsDerivedClassT>::t::t2 data, int x, int y = 0, int z = 0)
     {
         constexpr unsigned int vals_per_reg = 2;
         #pragma unroll
         for(unsigned int stride_x = 0; stride_x < vals_per_reg; stride_x++)
         {
-            ((Surface3DWithOffsetsDerivedClassT *)this)->storeData3D<t::t1>(((typename t::t1 *)&data)[stride_x], x + stride_x, y, z);
+            ((Surface3DWithOffsetsDerivedClassT *)this)->template storeData3D<typename BaseManipulator<T, Surface3DWithOffsetsDerivedClassT>::t::t1>(((typename BaseManipulator<T, Surface3DWithOffsetsDerivedClassT>::t::t1 *)&data)[stride_x], x + stride_x, y, z);
         }
     }
 
@@ -447,12 +451,12 @@ public:
 
 
 template <typename T, DimensionMapping3To2 dim_mapping, typename ParentDerivedClassT = void>
-class Layered3DSurfaceWithOffsetsManipulator : public Surface3DWithOffsetsManipulator<T, std::conditional<std::is_same<ParentDerivedClassT, void>::value, Layered3DSurfaceWithOffsetsManipulator<T, dim_mapping>, ParentDerivedClassT>::type>
+class Layered3DSurfaceWithOffsetsManipulator : public Surface3DWithOffsetsManipulator<T, dim_mapping, typename std::conditional<std::is_same<ParentDerivedClassT, void>::value, Layered3DSurfaceWithOffsetsManipulator<T, dim_mapping>, ParentDerivedClassT>::type>
 {
 public:
-    typedef typename std::conditional<std::is_same<ParentDerivedClassT, void>::value, Layered3DSurfaceWithOffsetsManipulator<T, dim_mapping>, ParentDerivedClassT>::type Layered3DSurfaceWithOffsetsDerivedClassT;
+    using Layered3DSurfaceWithOffsetsDerivedClassT = typename std::conditional<std::is_same<ParentDerivedClassT, void>::value, Layered3DSurfaceWithOffsetsManipulator<T, dim_mapping>, ParentDerivedClassT>::type;
 
-    __device__ Layered3DSurfaceWithOffsetsManipulator(cudaSurfaceObject_t *buffer, int2 *offsets, int x, int y, int z): Surface3DWithOffsetsManipulator<T, Layered3DSurfaceWithOffsetsDerivedClassT>(buffer, offsets, x, y, z){}
+    __device__ Layered3DSurfaceWithOffsetsManipulator(cudaSurfaceObject_t *buffer, int2 *offsets, int x, int y, int z): Surface3DWithOffsetsManipulator<T, dim_mapping, Layered3DSurfaceWithOffsetsDerivedClassT>(buffer, offsets, x, y, z){}
     template <typename outT>
     __device__ inline outT loadData3D(int x = 0, int y = 0, int z = 0)
     {
@@ -466,23 +470,23 @@ public:
     }
 };
 
-template <typename T, typename ParentDerivedClassT = void>
-class Array3DSurfaceWithOffsetsManipulator : public Surface3DWithOffsetsManipulator<T, std::conditional<std::is_same<ParentDerivedClassT, void>::value, Array3DSurfaceWithOffsetsManipulator<T>, ParentDerivedClassT>::type>
+template <typename T, DimensionMapping3To2 dim_mapping, typename ParentDerivedClassT = void>
+class Array3DSurfaceWithOffsetsManipulator : public Surface3DWithOffsetsManipulator<T, std::conditional<std::is_same<ParentDerivedClassT, void>::value, Array3DSurfaceWithOffsetsManipulator<T, dim_mapping>, ParentDerivedClassT>::type>
 {
 public:
-    typedef typename std::conditional<std::is_same<ParentDerivedClassT, void>::value, Array3DSurfaceWithOffsetsManipulator<T>, ParentDerivedClassT>::type Array3DSurfaceWithOffsetsDerivedClassT;
+    using Array3DSurfaceWithOffsetsDerivedClassT = typename std::conditional<std::is_same<ParentDerivedClassT, void>::value, Array3DSurfaceWithOffsetsManipulator<T, dim_mapping>, ParentDerivedClassT>::type;
     
-    __device__ Array3DSurfaceWithOffsetsManipulator(cudaSurfaceObject_t *buffer, int2 *offsets, int x, int y, int z): Surface3DWithOffsetsManipulator<T, Array3DSurfaceWithOffsetsDerivedClassT>(buffer, offsets, x, y, z){}
+    __device__ Array3DSurfaceWithOffsetsManipulator(cudaSurfaceObject_t *buffer, int2 *offsets, int x, int y, int z): Surface3DWithOffsetsManipulator<T, dim_mapping, Array3DSurfaceWithOffsetsDerivedClassT>(buffer, offsets, x, y, z){}
     template <typename outT>
-    __device__ inline outT loadData3D(int x, int z)
+    __device__ inline outT loadData3D(int x = 0, int y = 0, int z = 0)
     {
-        return surf2Dread<outT>(this->buffer + this->z + z, this->offsets[z].x + this->x + x, this->offsets[z].y + this->y, cudaBoundaryModeClamp);
+        return surf2Dread<outT>(this->buffer + this->z + z, this->offsets[z].x + this->x + x, this->offsets[z].y + this->y + y, cudaBoundaryModeClamp);
     }
 
     template <typename inT>
-    __device__ inline void storeData3D(inT data, int x, int z = 0)
+    __device__ inline void storeData3D(inT data, int x = 0, int y = 0, int z = 0)
     {
-        surf2Dwrite<inT>(data, this->buffer + this->z + z, this->offsets[z].x + this->x + x, this->offsets[z].y + this->y);
+        surf2Dwrite<inT>(data, this->buffer + this->z + z, this->offsets[z].x + this->x + x, this->offsets[z].y + this->y + y);
     }
 };
 
@@ -549,7 +553,7 @@ load_matrix_sync(matT *mat, DataManipulatorT &data)
 {
     constexpr unsigned int THREADS_PER_X = 4;
     constexpr unsigned int THREADS_PER_Y = 8;
-    constexpr unsigned int MAT_B_X_VALUES_PER_REGISTER = 4/sizeof(componentTypes<matT>::t1);
+    constexpr unsigned int MAT_B_X_VALUES_PER_REGISTER = 4/sizeof(typename componentTypes<matT>::t1);
     //int val_stride = stride/MAT_B_X_VALUES_PER_REGISTER;
     
     constexpr unsigned int MAT_B_X_LOADS_PER_THREAD = K/(THREADS_PER_X*MAT_B_X_VALUES_PER_REGISTER);
@@ -585,7 +589,7 @@ load_matrix_sync(matT *mat, DataManipulatorT &data)
             }
             else
             {
-                data.loadNx4BData2D<matT, std::is_same<MAJOR, nvcuda::wmma::row_major>::value>(act_x * MAT_B_X_VALUES_PER_REGISTER, act_y, (typename componentTypes<matT>::t1 *)act_data);
+                data.template loadNx4BData2D<matT, std::is_same<MAJOR, nvcuda::wmma::row_major>::value>(act_x * MAT_B_X_VALUES_PER_REGISTER, act_y, (typename componentTypes<matT>::t1 *)act_data);
             }
 
             #pragma unroll
@@ -711,7 +715,7 @@ load_matrix_sync(matT *mat, DataManipulatorT &data)
             }
             else
             {
-                data.loadNx4BData2D<matT, std::is_same<MAJOR,nvcuda::wmma::col_major>::value>(act_x * MAT_B_X_VALUES_PER_REGISTER, act_y, (typename componentTypes<matT>::t1 *)act_data);
+                data.template loadNx4BData2D<matT, std::is_same<MAJOR,nvcuda::wmma::col_major>::value>(act_x * MAT_B_X_VALUES_PER_REGISTER, act_y, (typename componentTypes<matT>::t1 *)act_data);
             }
 
             #pragma unroll
@@ -829,7 +833,7 @@ load_matrix_sync(matT *mat, DataManipulatorT &data)
             }
             else
             {
-                data.loadNxMData2D<matT, MAJOR == nvcuda::wmma::mem_row_major, 2>(act_x * MAT_B_X_VALUES_PER_REGISTER, act_y, (typename componentTypes<matT>::t1 *)act_data);
+                data.template loadNxMData2D<matT, MAJOR == nvcuda::wmma::mem_row_major, 2>(act_x * MAT_B_X_VALUES_PER_REGISTER, act_y, (typename componentTypes<matT>::t1 *)act_data);
             }
 
             #pragma unroll
@@ -944,7 +948,7 @@ store_matrix_sync(DataManipulatorT &data, matT *mat)
             // slow path -> reindexing datatypes and/or conversion layouts for threads is needed
             else
             {
-                data.storeNxMData2D<matT, MAJOR == nvcuda::wmma::mem_row_major, MAT_B_X_VALUES_PER_REGISTER>(act_x * MAT_B_X_VALUES_PER_REGISTER, act_y, (typename componentTypes<matT>::t1 *)&act_data);
+                data.template storeNxMData2D<matT, MAJOR == nvcuda::wmma::mem_row_major, MAT_B_X_VALUES_PER_REGISTER>(act_x * MAT_B_X_VALUES_PER_REGISTER, act_y, (typename componentTypes<matT>::t1 *)&act_data);
             }
         }   
     }
