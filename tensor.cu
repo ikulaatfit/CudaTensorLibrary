@@ -13,7 +13,7 @@ namespace CudaTensorLib
     template <> class componentTypes<unsigned char>
     {
     public:
-        enum {num_elements = 1};
+        static constexpr __device__ int getNumComponents(){return 1;};
         typedef unsigned char t;
         typedef unsigned char t1;
         typedef uchar2 t2;
@@ -22,7 +22,7 @@ namespace CudaTensorLib
     template <> class componentTypes<uchar2>
     {
     public:
-        enum {num_elements = 2};
+        static constexpr __device__ int getNumComponents(){return 2;};
         typedef uchar2 t;
         typedef unsigned char t1;
         typedef uchar2 t2;
@@ -31,7 +31,7 @@ namespace CudaTensorLib
     template <> class componentTypes<uchar4>
     {
     public:
-        enum {num_elements = 4};
+        static constexpr __device__ int getNumComponents(){return 4;};
         typedef uchar4 t;
         typedef unsigned char t1;
         typedef uchar2 t2;
@@ -40,7 +40,7 @@ namespace CudaTensorLib
     template <> class componentTypes<half>
     {
     public:
-        enum {num_elements = 1};
+        static constexpr __device__ int getNumComponents(){return 1;};
         typedef half t;
         typedef half t1;
         typedef half2 t2;
@@ -49,7 +49,7 @@ namespace CudaTensorLib
     template <> class componentTypes<half2>
     {
     public:
-        enum {num_elements = 2};
+        static constexpr __device__ int getNumComponents(){return 2;};
         typedef half2 t;
         typedef half t1;
         typedef half2 t2;
@@ -58,7 +58,7 @@ namespace CudaTensorLib
     template <> class componentTypes<int>
     {
     public:
-        enum {num_elements = 1};
+        static constexpr __device__ int getNumComponents(){return 1;};
         typedef int t;
         typedef int t1;
         typedef int2 t2;
@@ -67,7 +67,7 @@ namespace CudaTensorLib
     template <> class componentTypes<int2>
     {
     public:
-        enum {num_elements = 2};
+        static constexpr __device__ int getNumComponents(){return 2;};
         typedef int2 t;
         typedef int t1;
         typedef int2 t2;
@@ -76,7 +76,7 @@ namespace CudaTensorLib
     template <> class componentTypes<int4>
     {
     public:
-        enum {num_elements = 4};
+        static constexpr __device__ int getNumComponents(){return 4;};
         typedef int4 t;
         typedef int t1;
         typedef int2 t2;
@@ -85,7 +85,7 @@ namespace CudaTensorLib
     template <> class componentTypes<float>
     {
     public:
-        enum {num_elements = 1};
+        static constexpr __device__ int getNumComponents(){return 1;};
         typedef float t;
         typedef float t1;
         typedef float2 t2;
@@ -94,7 +94,7 @@ namespace CudaTensorLib
     template <> class componentTypes<float2>
     {
     public:
-        enum {num_elements = 2};
+        static constexpr __device__ int getNumComponents(){return 2;};
         typedef float2 t;
         typedef float t1;
         typedef float2 t2;
@@ -103,39 +103,36 @@ namespace CudaTensorLib
     template <> class componentTypes<float4>
     {
     public:
-        enum {num_elements = 4};
+        static constexpr __device__ int getNumComponents(){return 4;};
         typedef float4 t;
         typedef float t1;
         typedef float2 t2;
     };
 
-    template <typename mat_type, int M, int N, int K, typename T> class fragment;
+    template <typename mat_type, int M, int N, int K, typename T> class fragment
+    {
+    public:
+        typedef componentTypes<T> t;
+        static constexpr __device__ int getNumElementsPerComponentWithoutCopy() { return (std::is_same<mat_type, nvcuda::wmma::matrix_a>::value ? 1 : N) * (std::is_same<mat_type, nvcuda::wmma::matrix_b>::value ? 1 : M) * (std::is_same<mat_type, nvcuda::wmma::accumulator>::value ? 1 : K) / 32; };
+        static constexpr __device__ int getNumElementsPerComponent() { return (std::is_same<typename t::t1, half>::value && (M * N == 256) && (!std::is_same<mat_type, nvcuda::wmma::accumulator>::value)) ? 16 : getNumElementsPerComponentWithoutCopy(); };
+        static constexpr __device__ int getCopyPerThread() { return getNumElementsPerComponent() / getNumElementsPerComponentWithoutCopy(); };
+        static constexpr __device__ int getNumComponents(){return componentTypes<T>::getNumComponents();};
+        __device__ inline void fill(T data);
+        typename t::t1 x[t::getNumComponents()][getNumElementsPerComponent()];
+    };
 
-    template <int M, int N, int K, typename T> class fragment<nvcuda::wmma::matrix_a, M, N, K, T>
+    template<typename mat_type, int M, int N, int K, typename T>
+    __device__ inline void fragment<mat_type, M, N, K, T>::fill(T data)
     {
-    public:
-        typedef componentTypes<T> t;
-        enum {num_elements = ((std::is_same<typename t::t1,half>::value && (M * N == 256)) ? 16 : (M*K/32))*t::num_elements};
-        enum {copy_per_thread = num_elements / (M*K/32)};
-        typename t::t1 x[num_elements];
-    };
-    
-    template <int M, int N, int K, typename T> class fragment<nvcuda::wmma::matrix_b, M, N, K, T>
-    {
-    public:
-        typedef componentTypes<T> t;
-        enum {num_elements = ((std::is_same<typename t::t1,half>::value && (M * N == 256)) ? 16 : (N*K/32))*t::num_elements};
-        enum {copy_per_thread = num_elements / (M*K/32)};
-        typename t::t1 x[num_elements];
-    };
-    
-    template <int M, int N, int K, typename T> class fragment<nvcuda::wmma::accumulator, M, N, K, T>
-    {
-    public:
-        typedef componentTypes<T> t;
-        enum {num_elements = N*M*t::num_elements/32};
-        enum {copy_per_thread = num_elements / (M*K/32)};
-        typename t::t1 x[num_elements];
+#pragma unroll
+        for (int element_id = 0; element_id < getNumComponents(); element_id++)
+        {
+#pragma unroll
+            for (int component_id = 0; component_id < getNumElementsPerComponent(); component_id++)
+            {
+                x[element_id][component_id] = data;
+            }
+        }
     };
 
 template <typename T, class DerivedClass>
@@ -150,7 +147,7 @@ class BaseManipulator
         {
             typename t::t tmp_data = (horizontalDirection) ? ((DerivedClass *)this)->template loadData2D<typename t::t>(x, y) : ((DerivedClass *)this)->template loadData2D<typename t::t>(y, x);
             #pragma unroll
-            for(unsigned int element_id = 0; element_id < t::num_elements; element_id++)
+            for(unsigned int element_id = 0; element_id < t::getNumComponents(); element_id++)
             {
                 ((typename componentTypes<regT>::t1 *)reg)[regStride * element_id] = (typename componentTypes<regT>::t1)(((typename t::t1 *)&tmp_data)[element_id]);
             }
@@ -161,7 +158,7 @@ class BaseManipulator
         {
             typename t::t tmp_data;
             #pragma unroll
-            for(unsigned int element_id = 0; element_id < t::num_elements; element_id++)
+            for(unsigned int element_id = 0; element_id < t::getNumComponents(); element_id++)
             {
                 ((typename t::t1 *)&tmp_data)[element_id] = (typename t::t1)(((typename componentTypes<regT>::t1 *)reg)[regStride * element_id]);
             }
@@ -493,7 +490,7 @@ public:
 
 // load matrix a
 template <typename mat_type, typename inT, typename matT, int M, int N, int K, typename MAJOR>
-__device__ inline typename std::enable_if<std::is_same<mat_type, nvcuda::wmma::matrix_a>::value, void>::type
+__device__ inline typename std::enable_if<std::is_same<mat_type, nvcuda::wmma::matrix_a>::value && componentTypes<matT>::getNumComponents() == 1, void>::type
 load_matrix_sync(matT *mat, inT *data, unsigned int stride)
 {
     constexpr unsigned int THREADS_PER_X = 4;
@@ -549,7 +546,7 @@ load_matrix_sync(matT *mat, inT *data, unsigned int stride)
 
 template <typename mat_type, class DataManipulatorT, typename matT, int M, int N, int K, typename MAJOR>
 __device__ inline typename std::enable_if<std::is_same<mat_type, nvcuda::wmma::matrix_a>::value, void>::type
-load_matrix_sync(matT *mat, DataManipulatorT &data)
+load_matrix_sync(fragment<mat_type, M, N, K, matT> &mat, DataManipulatorT &data)
 {
     constexpr unsigned int THREADS_PER_X = 4;
     constexpr unsigned int THREADS_PER_Y = 8;
@@ -563,8 +560,6 @@ load_matrix_sync(matT *mat, DataManipulatorT &data)
     unsigned int x_thread_start = thread_in_warp%THREADS_PER_X;
     constexpr unsigned int copy_stride = MAT_B_Y_LOADS_PER_THREAD*MAT_B_X_LOADS_PER_THREAD;
     constexpr unsigned int copy_per_thread = (std::is_same<half,matT>::value && (K == 16) && (M * N==256)) ? (8/copy_stride) : 1;
-    constexpr unsigned int element_stride = copy_stride * copy_per_thread;
-    constexpr unsigned int elements_count = DataManipulatorT::t::num_elements;
     constexpr bool is_load_linear = std::is_same<typename DataManipulatorT::t::t1,matT>::value && std::is_same<MAJOR,nvcuda::wmma::row_major>::value;
 
     // load from matrix b to fragments - indexing hell
@@ -580,7 +575,7 @@ load_matrix_sync(matT *mat, DataManipulatorT &data)
             else id = x_stride_id;
 
             unsigned int act_x = x_thread_start + x_stride_id * THREADS_PER_X;
-            unsigned int act_data[elements_count];
+            unsigned int act_data[mat.getNumComponents()];
             // fast path -> no conversion of datatypes or layouts for threads is needed
             if(is_load_linear)
             //if(false)
@@ -593,12 +588,12 @@ load_matrix_sync(matT *mat, DataManipulatorT &data)
             }
 
             #pragma unroll
-            for(unsigned int element_id = 0; element_id < elements_count; element_id++)
+            for(unsigned int element_id = 0; element_id < mat.getNumComponents(); element_id++)
             {
                 #pragma unroll
                 for(unsigned int copy_id = 0; copy_id < copy_per_thread; copy_id++)
                 {
-                    ((unsigned int *)mat)[id + copy_id * copy_stride + element_id * element_stride] = act_data[element_id];
+                    ((unsigned int *)(mat.x[element_id]))[id + copy_id * copy_stride] = act_data[element_id];
                 }
             }
         }   
@@ -606,22 +601,22 @@ load_matrix_sync(matT *mat, DataManipulatorT &data)
 }
 
 template <typename mat_type, typename inT, typename matT, int M, int N, int K, typename MAJOR>
-__device__ inline typename std::enable_if<std::is_same<mat_type, nvcuda::wmma::matrix_a>::value, void>::type
+__device__ inline typename std::enable_if<std::is_same<mat_type, nvcuda::wmma::matrix_a>::value && componentTypes<matT>::getNumComponents() == 1, void>::type
 load_matrix_sync(CudaTensorLib::fragment<mat_type, M, N, K, matT> &mat, inT *data, unsigned int stride)
 {
-    load_matrix_sync<mat_type, inT, matT, M, N, K, MAJOR>(mat.x, data, stride);
+    load_matrix_sync<mat_type, inT, matT, M, N, K, MAJOR>(mat.x[0], data, stride);
 }
 
-template <typename mat_type, class DataManipulatorT, typename matT, int M, int N, int K, typename MAJOR>
+/*template <typename mat_type, class DataManipulatorT, typename matT, int M, int N, int K, typename MAJOR>
 __device__ inline typename std::enable_if<std::is_same<mat_type, nvcuda::wmma::matrix_a>::value, void>::type
 load_matrix_sync(CudaTensorLib::fragment<mat_type, M, N, K, matT> &mat, DataManipulatorT &data_getter)
 {
-    load_matrix_sync<mat_type, DataManipulatorT, matT, M, N, K, MAJOR>(mat.x, data_getter);
-}
+    load_matrix_sync<mat_type, DataManipulatorT, matT, M, N, K, MAJOR>(mat, data_getter);
+}*/
 
 // load matrix b
 template <typename mat_type, typename inT, typename matT, int M, int N, int K, typename MAJOR>
-__device__ inline typename std::enable_if<std::is_same<mat_type, nvcuda::wmma::matrix_b>::value, void>::type
+__device__ inline typename std::enable_if<std::is_same<mat_type, nvcuda::wmma::matrix_b>::value && componentTypes<matT>::getNumComponents() == 1, void>::type
 load_matrix_sync(matT *mat, inT *data, unsigned int stride)
 {
     constexpr unsigned int THREADS_PER_X = 4;
@@ -676,7 +671,7 @@ load_matrix_sync(matT *mat, inT *data, unsigned int stride)
 
 template <typename mat_type, class DataManipulatorT, typename matT, int M, int N, int K, typename MAJOR>
 __device__ inline typename std::enable_if<std::is_same<mat_type, nvcuda::wmma::matrix_b>::value, void>::type
-load_matrix_sync(matT *mat, DataManipulatorT &data)
+load_matrix_sync(fragment<mat_type, M, N, K, matT>& mat, DataManipulatorT &data)
 {
     constexpr unsigned int THREADS_PER_X = 4;
     constexpr unsigned int THREADS_PER_Y = 8;
@@ -690,8 +685,6 @@ load_matrix_sync(matT *mat, DataManipulatorT &data)
     unsigned int x_thread_start = thread_in_warp%THREADS_PER_X;
     constexpr unsigned int copy_stride = MAT_B_Y_LOADS_PER_THREAD*MAT_B_X_LOADS_PER_THREAD;
     constexpr unsigned int copy_per_thread = (std::is_same<half,matT>::value && (K == 16) && (M * N==256)) ? (8/copy_stride) : 1;
-    constexpr unsigned int element_stride = copy_stride * copy_per_thread;
-    constexpr unsigned int elements_count = DataManipulatorT::t::num_elements;
     constexpr bool is_load_linear = std::is_same<typename DataManipulatorT::t::t1,matT>::value && std::is_same<MAJOR,nvcuda::wmma::col_major>::value;
 
     // load from matrix a to fragments - indexing hell
@@ -707,7 +700,7 @@ load_matrix_sync(matT *mat, DataManipulatorT &data)
             else id = x_stride_id;
 
             unsigned int act_x = x_thread_start + x_stride_id * THREADS_PER_X;
-            unsigned int act_data[elements_count];
+            unsigned int act_data[mat.getNumComponents()];
             if(is_load_linear)
             //if(false)
             {
@@ -719,12 +712,12 @@ load_matrix_sync(matT *mat, DataManipulatorT &data)
             }
 
             #pragma unroll
-            for(unsigned int element_id = 0; element_id < elements_count; element_id++)
+            for(unsigned int element_id = 0; element_id < mat.getNumComponents(); element_id++)
             {
                 #pragma unroll
                 for(unsigned int copy_id = 0; copy_id < copy_per_thread; copy_id++)
                 {
-                    ((unsigned int *)mat)[id + copy_id * copy_stride + element_id * element_stride] = act_data[element_id];
+                    ((unsigned int *)(mat.x[element_id]))[id + copy_id * copy_stride] = act_data[element_id];
                 }
             }
         }   
@@ -732,22 +725,22 @@ load_matrix_sync(matT *mat, DataManipulatorT &data)
 }
 
 template <typename mat_type, typename inT, typename matT, int M, int N, int K, typename MAJOR>
-__device__ inline typename std::enable_if<std::is_same<mat_type, nvcuda::wmma::matrix_b>::value, void>::type
+__device__ inline typename std::enable_if<std::is_same<mat_type, nvcuda::wmma::matrix_b>::value && componentTypes<matT>::getNumComponents() == 1, void>::type
 load_matrix_sync(CudaTensorLib::fragment<mat_type, M, N, K, matT> &mat, inT *data, unsigned int stride)
 {
-    load_matrix_sync<mat_type, inT, matT, M, N, K, MAJOR>(mat.x, data, stride);
+    load_matrix_sync<mat_type, inT, matT, M, N, K, MAJOR>(mat.x[0], data, stride);
 }
 
-template <typename mat_type, class DataManipulatorT, typename matT, int M, int N, int K, typename MAJOR>
+/*template <typename mat_type, class DataManipulatorT, typename matT, int M, int N, int K, typename MAJOR>
 __device__ inline typename std::enable_if<std::is_same<mat_type, nvcuda::wmma::matrix_b>::value, void>::type
 load_matrix_sync(CudaTensorLib::fragment<mat_type, M, N, K, matT> &mat, DataManipulatorT &data_getter)
 {
     load_matrix_sync<mat_type, DataManipulatorT, matT, M, N, K, MAJOR>(mat.x, data_getter);
-}
+}*/
 
 // load matrix accumulator
 template <typename mat_type, typename inT, typename matT, int M, int N, int K, nvcuda::wmma::layout_t MAJOR>
-__device__ inline typename std::enable_if<std::is_same<mat_type, nvcuda::wmma::accumulator>::value, void>::type
+__device__ inline typename std::enable_if<std::is_same<mat_type, nvcuda::wmma::accumulator>::value && componentTypes<matT>::getNumComponents() == 1, void>::type
 load_matrix_sync(matT *mat, inT *data, unsigned int stride)
 {
     constexpr unsigned int THREADS_PER_X = 4;
@@ -798,7 +791,7 @@ load_matrix_sync(matT *mat, inT *data, unsigned int stride)
 // load matrix accumulator
 template <typename mat_type, class DataManipulatorT, typename matT, int M, int N, int K, nvcuda::wmma::layout_t MAJOR>
 __device__ inline typename std::enable_if<std::is_same<mat_type, nvcuda::wmma::accumulator>::value, void>::type
-load_matrix_sync(matT *mat, DataManipulatorT &data)
+load_matrix_sync(fragment<mat_type, M, N, K, matT>& mat, DataManipulatorT &data)
 {
     constexpr unsigned int THREADS_PER_X = 4;
     constexpr unsigned int THREADS_PER_Y = 8;
@@ -810,8 +803,6 @@ load_matrix_sync(matT *mat, DataManipulatorT &data)
     unsigned int thread_in_warp = threadIdx.x%WARP_SIZE;
     unsigned int y_thread_start = thread_in_warp/THREADS_PER_X;
     unsigned int x_thread_start = thread_in_warp%THREADS_PER_X;
-    constexpr unsigned int element_stride = MAT_B_Y_LOADS_PER_THREAD*MAT_B_X_LOADS_PER_THREAD;;
-    constexpr unsigned int elements_count = DataManipulatorT::t::num_elements;
     constexpr bool is_load_linear = std::is_same<typename DataManipulatorT::t::t1,matT>::value && (MAJOR == nvcuda::wmma::mem_row_major);
 
     #pragma unroll
@@ -826,7 +817,7 @@ load_matrix_sync(matT *mat, DataManipulatorT &data)
             else id = x_stride_id;
 
             unsigned int act_x = x_thread_start + x_stride_id * THREADS_PER_X;
-            typename componentTypes<matT>::t2 act_data[elements_count];
+            typename componentTypes<matT>::t2 act_data[mat.getNumComponents()];
             if(is_load_linear)
             {
                 act_data[0] = data.load2Data2D(act_x * MAT_B_X_VALUES_PER_REGISTER, act_y);
@@ -837,31 +828,31 @@ load_matrix_sync(matT *mat, DataManipulatorT &data)
             }
 
             #pragma unroll
-            for(unsigned int element_id = 0; element_id < elements_count; element_id++)
+            for(unsigned int element_id = 0; element_id < mat.getNumComponents(); element_id++)
             {
-                ((typename componentTypes<matT>::t2 *)mat)[id + element_id * element_stride] = act_data[element_id];
+                ((typename componentTypes<matT>::t2 *)(mat.x[element_id]))[id] = act_data[element_id];
             }
         }   
     }
 }
 
 template <typename mat_type, typename inT, typename matT, int M, int N, int K, nvcuda::wmma::layout_t MAJOR>
-__device__ inline typename std::enable_if<std::is_same<mat_type, nvcuda::wmma::accumulator>::value, void>::type
+__device__ inline typename std::enable_if<std::is_same<mat_type, nvcuda::wmma::accumulator>::value && componentTypes<matT>::getNumComponents() == 1, void>::type
 load_matrix_sync(CudaTensorLib::fragment<mat_type, M, N, K, matT> &mat, inT *data, unsigned int stride)
 {
-    load_matrix_sync<mat_type, inT, matT, M, N, K, MAJOR>(mat.x, data, stride);
+    load_matrix_sync<mat_type, inT, matT, M, N, K, MAJOR>(mat.x[0], data, stride);
 }
 
-template <typename mat_type, class DataManipulatorT, typename matT, int M, int N, int K, typename MAJOR>
+/*template <typename mat_type, class DataManipulatorT, typename matT, int M, int N, int K, typename MAJOR>
 __device__ inline typename std::enable_if<std::is_same<mat_type, nvcuda::wmma::accumulator>::value, void>::type
 load_matrix_sync(CudaTensorLib::fragment<mat_type, M, N, K, matT> &mat, DataManipulatorT &data_getter)
 {
     load_matrix_sync<mat_type, DataManipulatorT, matT, M, N, K, MAJOR>(mat.x, data_getter);
-}
+}*/
 
 // store matrix accumulator
 template <typename mat_type, typename matT, typename outT, int M, int N, int K, nvcuda::wmma::layout_t MAJOR>
-__device__ inline typename std::enable_if<std::is_same<mat_type, nvcuda::wmma::accumulator>::value, void>::type
+__device__ inline typename std::enable_if<std::is_same<mat_type, nvcuda::wmma::accumulator>::value && componentTypes<matT>::getNumComponents() == 1, void>::type
 store_matrix_sync(outT *data, matT *mat, unsigned int stride)
 {
     constexpr unsigned int THREADS_PER_X = 4;
@@ -910,7 +901,7 @@ store_matrix_sync(outT *data, matT *mat, unsigned int stride)
 
 template <typename mat_type, typename matT, class DataManipulatorT, int M, int N, int K, nvcuda::wmma::layout_t MAJOR>
 __device__ inline typename std::enable_if<std::is_same<mat_type, nvcuda::wmma::accumulator>::value, void>::type
-store_matrix_sync(DataManipulatorT &data, matT *mat)
+store_matrix_sync(DataManipulatorT &data, fragment<mat_type, M, N, K, matT>& mat)
 {
     constexpr unsigned int THREADS_PER_X = 4;
     constexpr unsigned int THREADS_PER_Y = 8;
@@ -922,8 +913,6 @@ store_matrix_sync(DataManipulatorT &data, matT *mat)
     unsigned int y_thread_start = thread_in_warp/THREADS_PER_X;
     unsigned int x_thread_start = thread_in_warp%THREADS_PER_X;
 
-    constexpr unsigned int element_stride = MAT_B_Y_LOADS_PER_THREAD*MAT_B_X_LOADS_PER_THREAD;;
-    constexpr unsigned int elements_count = DataManipulatorT::t::num_elements;
     constexpr bool is_load_linear = std::is_same<typename DataManipulatorT::t::t1,matT>::value && (MAJOR == nvcuda::wmma::mem_row_major);
     // load from accumulator matrix to fragments - indexing hell
     #pragma unroll
@@ -938,35 +927,41 @@ store_matrix_sync(DataManipulatorT &data, matT *mat)
             else id = x_stride_id;
 
             unsigned int act_x = x_thread_start + x_stride_id * THREADS_PER_X;
-            typename componentTypes<matT>::t2 act_data = ((typename componentTypes<matT>::t2 *)mat)[id];
+
+            typename componentTypes<matT>::t2 act_data[mat.getNumComponents()];
+            #pragma unroll
+            for (unsigned int element_id = 0; element_id < mat.getNumComponents(); element_id++)
+            {
+                act_data[element_id] = ((typename componentTypes<matT>::t2*)(mat.x[element_id]))[id];
+            }
             // fast path -> no conversion of datatypes or layouts for threads is needed
             //if(is_load_linear)
-            if(false)
+            if(is_load_linear)
             {
-                data.store2Data2D(act_data, act_x * MAT_B_X_VALUES_PER_REGISTER, act_y);
+                data.store2Data2D(act_data[0], act_x * MAT_B_X_VALUES_PER_REGISTER, act_y);
             }
             // slow path -> reindexing datatypes and/or conversion layouts for threads is needed
             else
             {
-                data.template storeNxMData2D<matT, MAJOR == nvcuda::wmma::mem_row_major, MAT_B_X_VALUES_PER_REGISTER>(act_x * MAT_B_X_VALUES_PER_REGISTER, act_y, (typename componentTypes<matT>::t1 *)&act_data);
+                data.template storeNxMData2D<matT, MAJOR == nvcuda::wmma::mem_row_major, MAT_B_X_VALUES_PER_REGISTER>(act_x * MAT_B_X_VALUES_PER_REGISTER, act_y, (typename componentTypes<matT>::t1 *)act_data);
             }
         }   
     }
 }
 
 template <typename mat_type, typename matT, typename outT, int M, int N, int K, nvcuda::wmma::layout_t MAJOR>
-__device__ inline typename std::enable_if<std::is_same<mat_type, nvcuda::wmma::accumulator>::value, void>::type
+__device__ inline typename std::enable_if<std::is_same<mat_type, nvcuda::wmma::accumulator>::value && componentTypes<matT>::getNumComponents() == 1, void>::type
 store_matrix_sync(outT *data, CudaTensorLib::fragment<mat_type, M, N, K, matT> &mat, unsigned int stride)
 {
-    store_matrix_sync<mat_type, matT, outT, M, N, K, MAJOR>(data, mat.x, stride);
+    store_matrix_sync<mat_type, matT, outT, M, N, K, MAJOR>(data, mat.x[0], stride);
 }
 
-template <typename mat_type, typename matT, class DataManipulatorT, int M, int N, int K, nvcuda::wmma::layout_t MAJOR>
+/*template <typename mat_type, typename matT, class DataManipulatorT, int M, int N, int K, nvcuda::wmma::layout_t MAJOR>
 __device__ inline typename std::enable_if<std::is_same<mat_type, nvcuda::wmma::accumulator>::value, void>::type
 store_matrix_sync(DataManipulatorT &data_getter, CudaTensorLib::fragment<mat_type, M, N, K, matT> &mat)
 {
     store_matrix_sync<mat_type, matT, DataManipulatorT, M, N, K, MAJOR>(data_getter, mat.x);
-}
+}*/
 
 template <typename T, int num_elements>
 __device__ void fill_fragment(T *ptr, T data)
@@ -975,16 +970,6 @@ __device__ void fill_fragment(T *ptr, T data)
     for(int i = 0; i < num_elements; i++)
     {
         ptr[i] = data;
-    }
-}
-
-template <typename T, typename matT>
-__device__ void fill_fragment(matT &ptr, T data)
-{
-    #pragma unroll
-    for(int i = 0; i < ptr.num_elements; i++)
-    {
-        ptr.x[i] = data;
     }
 }
 
@@ -1335,6 +1320,20 @@ template <> __device__ void mma_sync<float, __nv_bfloat16, 8, 32, 16>(float *d, 
          "f"(c_ptr[0]), "f"(c_ptr[1]), "f"(c_ptr[2]), "f"(c_ptr[3]), "f"(c_ptr[4]), "f"(c_ptr[5]), "f"(c_ptr[6]), "f"(c_ptr[7]));
 }
 #endif
+
+template <typename matAccT, typename matT, int M, int N, int K>
+__device__ typename std::enable_if<matT::t::getNumComponents() == matAccT::t::getNumComponents(), void>::type
+mma_sync(fragment<nvcuda::wmma::accumulator, M, N, K, matAccT>& d,
+         fragment<nvcuda::wmma::matrix_a, M, N, K, matT>& a,
+         fragment<nvcuda::wmma::matrix_b, M, N, K, matT>& b,
+         fragment<nvcuda::wmma::accumulator, M, N, K, matAccT>& c)
+{
+    #pragma unroll
+    for (unsigned int component_id = 0; component_id < matT::t::getNumComponents(); component_id++)
+    {
+        mma_sync<matAccT, matT, M, N, K>(d.x[component_id], a.x[component_id], b.x[component_id], c.x[component_id]);
+    }
+}
 
 }
 #endif
